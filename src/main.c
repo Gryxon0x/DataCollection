@@ -1,51 +1,37 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <zephyr/drivers/sensor.h>
+#include <zephyr/drivers/i2c.h>
 #include <zephyr/sys/printk.h>
 
-#define SLEEP_TIME_MS 100
+#define BMA400_NODE DT_ALIAS(bma400)
+#define BMA400_CHIP_ID_REG 0x00
 
-static void print_sensor_value(const char *name, const struct sensor_value *val)
-{
-    printk("%s=%d.%06d ", name, val->val1, val->val2);
-}
+static const struct i2c_dt_spec bma400 = I2C_DT_SPEC_GET(BMA400_NODE);
 
 int main(void)
 {
-    const struct device *accel = DEVICE_DT_GET(DT_ALIAS(accel0));
+    uint8_t chip_id = 0;
+    int ret;
 
-    printk("BMA400 readout start\n");
+    printk("BMA400 raw I2C test start\n");
 
-    if (!device_is_ready(accel)) {
-        printk("ERROR: BMA400 device is not ready\n");
+    if (!device_is_ready(bma400.bus)) {
+        printk("ERROR: I2C bus is not ready\n");
         return 0;
     }
 
-    printk("BMA400 device is ready: %s\n", accel->name);
+    printk("I2C bus ready, BMA400 addr=0x%02x\n", bma400.addr);
 
     while (1) {
-        struct sensor_value accel_xyz[3];
+        ret = i2c_reg_read_byte_dt(&bma400, BMA400_CHIP_ID_REG, &chip_id);
 
-        int ret = sensor_sample_fetch(accel);
-        if (ret < 0) {
-            printk("sensor_sample_fetch() failed: %d\n", ret);
-            k_sleep(K_MSEC(SLEEP_TIME_MS));
-            continue;
+        if (ret == 0) {
+            printk("BMA400 CHIP_ID = 0x%02x\n", chip_id);
+        } else {
+            printk("I2C read failed: %d\n", ret);
         }
 
-        ret = sensor_channel_get(accel, SENSOR_CHAN_ACCEL_XYZ, accel_xyz);
-        if (ret < 0) {
-            printk("sensor_channel_get() failed: %d\n", ret);
-            k_sleep(K_MSEC(SLEEP_TIME_MS));
-            continue;
-        }
-
-        print_sensor_value("ax", &accel_xyz[0]);
-        print_sensor_value("ay", &accel_xyz[1]);
-        print_sensor_value("az", &accel_xyz[2]);
-        printk("m/s^2\n");
-
-        k_sleep(K_MSEC(SLEEP_TIME_MS));
+        k_sleep(K_MSEC(1000));
     }
 
     return 0;
