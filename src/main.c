@@ -1,37 +1,50 @@
 #include <zephyr/kernel.h>
-#include <zephyr/device.h>
-#include <zephyr/drivers/i2c.h>
 #include <zephyr/sys/printk.h>
 
-#define BMA400_NODE DT_ALIAS(bma400)
-#define BMA400_CHIP_ID_REG 0x00
+#include "bma400_app.h"
 
-static const struct i2c_dt_spec bma400 = I2C_DT_SPEC_GET(BMA400_NODE);
+#define SAMPLE_PERIOD_MS 20
 
 int main(void)
 {
-    uint8_t chip_id = 0;
     int ret;
+    uint32_t sample_id = 0;
+    int64_t t0_ms;
 
-    printk("BMA400 raw I2C test start\n");
+    printk("BMA400 data collection start\n");
 
-    if (!device_is_ready(bma400.bus)) {
-        printk("ERROR: I2C bus is not ready\n");
+    ret = bma400_app_init();
+    if (ret != 0) {
+        printk("BMA400 init failed: %d\n", ret);
         return 0;
     }
 
-    printk("I2C bus ready, BMA400 addr=0x%02x\n", bma400.addr);
+    printk("sample_id,t_ms,ax_raw,ay_raw,az_raw,ax_mg,ay_mg,az_mg\n");
+
+    t0_ms = k_uptime_get();
 
     while (1) {
-        ret = i2c_reg_read_byte_dt(&bma400, BMA400_CHIP_ID_REG, &chip_id);
+        struct bma400_app_accel_raw accel;
+        int64_t t_ms = k_uptime_get() - t0_ms;
+
+        ret = bma400_app_read_accel_raw(&accel);
 
         if (ret == 0) {
-            printk("BMA400 CHIP_ID = 0x%02x\n", chip_id);
+            printk("%u,%lld,%d,%d,%d,%ld,%ld,%ld\n",
+                   sample_id,
+                   t_ms,
+                   accel.x,
+                   accel.y,
+                   accel.z,
+                   bma400_app_raw_to_mg(accel.x),
+                   bma400_app_raw_to_mg(accel.y),
+                   bma400_app_raw_to_mg(accel.z));
+            sample_id++;
         } else {
-            printk("I2C read failed: %d\n", ret);
+            printk("bma400_app_read_accel_raw failed: %d\n", ret);
         }
 
-        k_sleep(K_MSEC(1000));
+        k_sleep(K_MSEC(SAMPLE_PERIOD_MS));
     }
 
     return 0;
