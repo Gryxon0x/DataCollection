@@ -1,11 +1,11 @@
-#include "bma400_app.h"
+#include "../include/bma400_app.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/sys/printk.h>
 
-#include "bma400.h"
+#include "../drivers/bma400/bma400.h"
 
 /*
  * This alias must exist in devicetree overlay:
@@ -38,6 +38,8 @@ static const struct i2c_dt_spec bma400_i2c = I2C_DT_SPEC_GET(BMA400_NODE);
 
 static struct bma400_dev bma400_dev_ctx;
 
+static uint8_t bma400_i2c_addr;
+
 /*
  * Bosch API I2C read callback.
  */
@@ -46,9 +48,13 @@ static BMA400_INTF_RET_TYPE bma400_zephyr_i2c_read(uint8_t reg_addr,
                                                     uint32_t len,
                                                     void *intf_ptr)
 {
-    ARG_UNUSED(intf_ptr);
+    uint8_t dev_addr = *(uint8_t *)intf_ptr;
 
-    int ret = i2c_burst_read_dt(&bma400_i2c, reg_addr, reg_data, len);
+    int ret = i2c_burst_read(bma400_i2c.bus,
+                             dev_addr,
+                             reg_addr,
+                             reg_data,
+                             len);
 
     if (ret == 0) {
         return BMA400_INTF_RET_SUCCESS;
@@ -65,9 +71,13 @@ static BMA400_INTF_RET_TYPE bma400_zephyr_i2c_write(uint8_t reg_addr,
                                                      uint32_t len,
                                                      void *intf_ptr)
 {
-    ARG_UNUSED(intf_ptr);
+    uint8_t dev_addr = *(uint8_t *)intf_ptr;
 
-    int ret = i2c_burst_write_dt(&bma400_i2c, reg_addr, reg_data, len);
+    int ret = i2c_burst_write(bma400_i2c.bus,
+                              dev_addr,
+                              reg_addr,
+                              reg_data,
+                              len);
 
     if (ret == 0) {
         return BMA400_INTF_RET_SUCCESS;
@@ -111,11 +121,13 @@ int bma400_app_init(void)
         return -1;
     }
 
+    bma400_i2c_addr = bma400_i2c.addr;
+
     bma400_dev_ctx.intf = BMA400_I2C_INTF;
     bma400_dev_ctx.read = bma400_zephyr_i2c_read;
     bma400_dev_ctx.write = bma400_zephyr_i2c_write;
     bma400_dev_ctx.delay_us = bma400_zephyr_delay_us;
-    bma400_dev_ctx.intf_ptr = NULL;
+    bma400_dev_ctx.intf_ptr = &bma400_i2c_addr;
 
     /*
      * Some Bosch SensorAPI versions expose read_write_len.

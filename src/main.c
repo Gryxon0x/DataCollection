@@ -11,12 +11,20 @@ int main(void)
     uint32_t sample_id = 0;
     int64_t t0_ms;
 
-    printk("BMA400 data collection start\n");
+    k_msleep(3000);
+
+    printk("\n\n=== BMA400 firmware boot ===\n");
+    printk("Before bma400_app_init()\n");
 
     ret = bma400_app_init();
+
+    printk("After bma400_app_init(), ret=%d\n", ret);
+
     if (ret != 0) {
-        printk("BMA400 init failed: %d\n", ret);
-        return 0;
+        while (1) {
+            printk("BMA400 init failed, ret=%d\n", ret);
+            k_sleep(K_MSEC(1000));
+        }
     }
 
     printk("sample_id,t_ms,ax_raw,ay_raw,az_raw,ax_mg,ay_mg,az_mg\n");
@@ -30,15 +38,20 @@ int main(void)
         ret = bma400_app_read_accel_raw(&accel);
 
         if (ret == 0) {
-            printk("%u,%lld,%d,%d,%d,%ld,%ld,%ld\n",
+            int32_t ax_mg = bma400_app_raw_to_mg(accel.x);
+            int32_t ay_mg = bma400_app_raw_to_mg(accel.y);
+            int32_t az_mg = bma400_app_raw_to_mg(accel.z);
+
+            printk("%u,%lld,%d,%d,%d,%d,%d,%d\n",
                    sample_id,
                    t_ms,
                    accel.x,
                    accel.y,
                    accel.z,
-                   bma400_app_raw_to_mg(accel.x),
-                   bma400_app_raw_to_mg(accel.y),
-                   bma400_app_raw_to_mg(accel.z));
+                   (int)ax_mg,
+                   (int)ay_mg,
+                   (int)az_mg);
+
             sample_id++;
         } else {
             printk("bma400_app_read_accel_raw failed: %d\n", ret);
