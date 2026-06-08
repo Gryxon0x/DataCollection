@@ -11,5 +11,6 @@ target_include_directories(app PRIVATE
 target_sources(app PRIVATE
     src/main.c
     src/bma400_app.c
+    src/ble_data_service.c
     drivers/bma400/bma400.c
 )
