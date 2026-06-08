@@ -196,34 +196,23 @@ int bma400_app_init(void)
 
 int bma400_app_read_accel_raw(struct bma400_app_accel_raw *accel)
 {
-    uint8_t data[BMA400_ACCEL_DATA_LEN];
-    int ret;
+    struct bma400_sensor_data data;
+    int8_t rslt;
 
     if (accel == NULL) {
         return -1;
     }
 
-    ret = i2c_burst_read_dt(&bma400_i2c,
-                            BMA400_REG_ACCEL_X_LSB,
-                            data,
-                            sizeof(data));
+    rslt = bma400_get_accel_data(BMA400_DATA_ONLY, &data, &bma400_dev_ctx);
 
-    if (ret != 0) {
-        return ret;
+    if (rslt != BMA400_OK) {
+        printk("bma400_get_accel_data failed: %d\n", rslt);
+        return rslt;
     }
 
-    /*
-     * BMA400 acceleration data is 12-bit signed.
-     * Data format:
-     * raw_x = (msb << 8 | lsb) >> 4
-     */
-    uint16_t raw_x = ((uint16_t)data[1] << 8) | data[0];
-    uint16_t raw_y = ((uint16_t)data[3] << 8) | data[2];
-    uint16_t raw_z = ((uint16_t)data[5] << 8) | data[4];
-
-    accel->x = sign_extend_12bit(raw_x >> 4);
-    accel->y = sign_extend_12bit(raw_y >> 4);
-    accel->z = sign_extend_12bit(raw_z >> 4);
+    accel->x = data.x;
+    accel->y = data.y;
+    accel->z = data.z;
 
     return 0;
 }
