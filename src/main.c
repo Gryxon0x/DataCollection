@@ -5,19 +5,251 @@
 #include "ble_data_service.h"
 
 #define SAMPLE_PERIOD_MS 20
+#define MAX_SAMPLES 1000
+
+struct accel_record {
+    uint32_t sample_id;
+    uint32_t t_ms;
+    int16_t ax;
+    int16_t ay;
+    int16_t az;
+};
+
+enum app_state {
+    APP_STATE_IDLE = 0,
+    APP_STATE_COLLECTING,
+    APP_STATE_TRANSMITTING,
+    APP_STATE_DONE,
+    APP_STATE_ERROR
+};
+
+static struct accel_record samples[MAX_SAMPLES];
+static uint32_t sample_count;
+
+static volatile bool start_requested;
+static volatile bool send_requested;
+static volatile bool clear_requested;
+static volatile bool status_requested;
+
+static uint32_t requested_duration_ms;
+
+static enum app_state state = APP_STATE_IDLE;
+
+static const char *state_to_string(enum app_state s)
+{
+    switch (s) {
+    case APP_STATE_IDLE:
+        return "IDLE";
+    case APP_STATE_COLLECTING:
+        return "COLLECTING";
+    case APP_STATE_TRANSMITTING:
+        return "TRANSMITTING";
+    case APP_STATE_DONE:
+        return "DONE";
+    case APP_STATE_ERROR:
+        return "ERROR";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+static void send_status(void)
+{
+    char line[96];
+
+    snprintf(line, sizeof(line),
+             "STATUS,%s,samples=%u,max=%u\n",
+             state_to_string(state),
+             sample_count,
+             MAX_SAMPLES);
+
+    ble_data_service_send_text(line);
+}
+
+static void app_command_handler(const char *command)
+{
+    printk("App command handler: %s\n", command);
+
+    if (strcmp(command, "PING") == 0) {
+        ble_data_service_send_text("PONG\n");
+        return;
+    }
+
+    if (strncmp(command, "START,", 6) == 0) {
+        uint32_t duration = (uint32_t)atoi(&command[6]);
+
+        if (duration == 0) {
+            ble_data_service_send_text("ERROR,INVALID_DURATION\n");
+            return;
+        }
+
+        uint32_t max_duration = MAX_SAMPLES * SAMPLE_PERIOD_MS;
+
+        if (duration > max_duration) {
+            duration = max_duration;
+        }
+
+        if (state == APP_STATE_COLLECTING || state == APP_STATE_TRANSMITTING) {
+            ble_data_service_send_text("ERROR,BUSY\n");
+            return;
+        }
+
+        requested_duration_ms = duration;
+        start_requested = true;
+
+        ble_data_service_send_text("START_ACCEPTED\n");
+        return;
+    }
+
+    if (strcmp(command, "SEND") == 0) {
+        if (state == APP_STATE_COLLECTING || state == APP_STATE_TRANSMITTING) {
+            ble_data_service_send_text("ERROR,BUSY\n");
+            return;
+        }
+
+        send_requested = true;
+        ble_data_service_send_text("SEND_ACCEPTED\n");
+        return;
+    }
+
+    if (strcmp(command, "CLEAR") == 0) {
+        if (state == APP_STATE_COLLECTING || state == APP_STATE_TRANSMITTING) {
+            ble_data_service_send_text("ERROR,BUSY\n");
+            return;
+        }
+
+        clear_requested = true;
+        ble_data_service_send_text("CLEAR_ACCEPTED\n");
+        return;
+    }
+
+    if (strcmp(command, "STATUS") == 0) {
+        status_requested = true;
+        return;
+    }
+
+    ble_data_service_send_text("ERROR,UNKNOWN_COMMAND\n");
+}
+
+static void collect_samples(uint32_t duration_ms)
+{
+    int ret;
+    int64_t t0_ms;
+    int64_t next_sample_ms;
+    uint32_t max_requested_samples;
+
+    state = APP_STATE_COLLECTING;
+    sample_count = 0;
+
+    max_requested_samples = duration_ms / SAMPLE_PERIOD_MS;
+
+    if (max_requested_samples > MAX_SAMPLES) {
+        max_requested_samples = MAX_SAMPLES;
+    }
+
+    printk("Collecting samples: duration=%u ms, target=%u samples\n",
+           duration_ms,
+           max_requested_samples);
+
+    ble_data_service_send_text("COLLECTING\n");
+
+    t0_ms = k_uptime_get();
+    next_sample_ms = t0_ms;
+
+    for (uint32_t i = 0; i < max_requested_samples; i++) {
+        struct bma400_app_accel_raw accel;
+        int64_t now_ms;
+        int64_t sleep_ms;
+
+        now_ms = k_uptime_get();
+        sleep_ms = next_sample_ms - now_ms;
+
+        if (sleep_ms > 0) {
+            k_sleep(K_MSEC((uint32_t)sleep_ms));
+        }
+
+        now_ms = k_uptime_get();
+
+        ret = bma400_app_read_accel_raw(&accel);
+        if (ret != 0) {
+            printk("bma400_app_read_accel_raw failed: %d\n", ret);
+            state = APP_STATE_ERROR;
+            ble_data_service_send_text("ERROR,BMA400_READ_FAILED\n");
+            return;
+        }
+
+        samples[sample_count].sample_id = sample_count;
+        samples[sample_count].t_ms = (uint32_t)(now_ms - t0_ms);
+        samples[sample_count].ax = accel.x;
+        samples[sample_count].ay = accel.y;
+        samples[sample_count].az = accel.z;
+
+        sample_count++;
+
+        next_sample_ms += SAMPLE_PERIOD_MS;
+    }
+
+    state = APP_STATE_DONE;
+
+    printk("Collection done: samples=%u\n", sample_count);
+    ble_data_service_send_text("COLLECTION_DONE\n");
+}
+
+static void transmit_samples(void)
+{
+    char line[96];
+
+    if (!ble_data_service_is_connected()) {
+        printk("Cannot transmit: BLE not connected\n");
+        return;
+    }
+
+    if (!ble_data_service_notifications_enabled()) {
+        printk("Cannot transmit: notifications not enabled\n");
+        return;
+    }
+
+    state = APP_STATE_TRANSMITTING;
+
+    printk("Transmitting %u samples\n", sample_count);
+
+    ble_data_service_send_text("BEGIN_CSV\n");
+    ble_data_service_send_text("sample_id,t_ms,ax_raw,ay_raw,az_raw\n");
+
+    for (uint32_t i = 0; i < sample_count; i++) {
+        snprintf(line, sizeof(line),
+                 "%u,%u,%d,%d,%d\n",
+                 samples[i].sample_id,
+                 samples[i].t_ms,
+                 samples[i].ax,
+                 samples[i].ay,
+                 samples[i].az);
+
+        int ret = ble_data_service_send_text(line);
+
+        if (ret != 0) {
+            printk("BLE send failed at sample %u, ret=%d\n", i, ret);
+            state = APP_STATE_ERROR;
+            return;
+        }
+    }
+
+    ble_data_service_send_text("END_CSV\n");
+
+    state = APP_STATE_DONE;
+
+    printk("Transmission done\n");
+}
 
 int main(void)
 {
     int ret;
-    uint32_t sample_id = 0;
-    int64_t t0_ms;
 
     k_msleep(3000);
 
-    printk("\n\n=== BMA400 firmware boot ===\n");
+    printk("\n\n=== BMA400 BLE data collector boot ===\n");
 
     ret = bma400_app_init();
-
     if (ret != 0) {
         while (1) {
             printk("BMA400 init failed, ret=%d\n", ret);
@@ -25,46 +257,59 @@ int main(void)
         }
     }
 
-    // printk("sample_id,t_ms,ax_raw,ay_raw,az_raw,ax_mg,ay_mg,az_mg\n");
-
-    // t0_ms = k_uptime_get();
+    printk("BMA400 init OK\n");
 
     ret = ble_data_service_init();
-    printk("ble_data_service_init red=%d\n", ret);
+    printk("ble_data_service_init ret=%d\n", ret);
+
+    if (ret != 0) {
+        while (1) {
+            printk("BLE init failed, ret=%d\n", ret);
+            k_sleep(K_MSEC(1000));
+        }
+    }
+
+    ble_data_service_set_command_handler(app_command_handler);
+
+    printk("Ready. Commands: PING, STATUS, CLEAR, SEND, START,<duration_ms>\n");
 
     while (1) {
-        // struct bma400_app_accel_raw accel;
-        // int64_t t_ms = k_uptime_get() - t0_ms;
+        if (status_requested) {
+            status_requested = false;
+            send_status();
+        }
 
-        // ret = bma400_app_read_accel_raw(&accel);
+        if (clear_requested) {
+            clear_requested = false;
+            sample_count = 0;
+            state = APP_STATE_IDLE;
+            ble_data_service_send_text("CLEARED\n");
+        }
 
-        // if (ret == 0) {
-        //     int32_t ax_mg = bma400_app_raw_to_mg(accel.x);
-        //     int32_t ay_mg = bma400_app_raw_to_mg(accel.y);
-        //     int32_t az_mg = bma400_app_raw_to_mg(accel.z);
+        if (start_requested) {
+            uint32_t duration = requested_duration_ms;
 
-        //     printk("%u,%lld,%d,%d,%d,%d,%d,%d\n",
-        //            sample_id,
-        //            t_ms,
-        //            accel.x,
-        //            accel.y,
-        //            accel.z,
-        //            (int)ax_mg,
-        //            (int)ay_mg,
-        //            (int)az_mg);
+            start_requested = false;
 
-        //     sample_id++;
-        // } else {
-        //     printk("bma400_app_read_accel_raw failed: %d\n", ret);
-        // }
+            collect_samples(duration);
 
-        // k_sleep(K_MSEC(SAMPLE_PERIOD_MS));
+            if (state == APP_STATE_DONE) {
+                transmit_samples();
+            }
+        }
 
-        printk("Heartbeat: connected=%d notify=%d\n",
-            ble_data_service_is_connected(),
-            ble_data_service_notifications_enabled());
+        if (send_requested) {
+            send_requested = false;
+            transmit_samples();
+        }
 
-        k_sleep(K_SECONDS(5));
+        printk("Heartbeat: state=%s connected=%d notify=%d samples=%u\n",
+               state_to_string(state),
+               ble_data_service_is_connected(),
+               ble_data_service_notifications_enabled(),
+               sample_count);
+
+        k_sleep(K_MSEC(500));
     }
 
     return 0;

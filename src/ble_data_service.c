@@ -53,6 +53,29 @@ static ssize_t command_write_cb(struct bt_conn *conn,
                                 uint16_t offset,
                                 uint8_t flags);
 
+static const uint8_t adv_flags[] = {
+    BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR
+};
+
+static const uint8_t adv_service_uuid[] = {
+    BT_UUID_BMA400_SERVICE_VAL
+};
+
+static const struct bt_data ad[] = {
+    BT_DATA(BT_DATA_FLAGS, adv_flags, sizeof(adv_flags)),
+    BT_DATA(BT_DATA_NAME_COMPLETE,
+            CONFIG_BT_DEVICE_NAME,
+            sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+};
+
+static const struct bt_data sd[] = {
+    BT_DATA(BT_DATA_UUID128_ALL,
+            adv_service_uuid,
+            sizeof(adv_service_uuid)),
+};
+
+static ble_command_handler_t command_handler;
+
 /*
  * Attribute indexes:
  * 0 - Primary service
@@ -188,6 +211,11 @@ int ble_data_service_send_text(const char *text)
     return 0;
 }
 
+void ble_data_service_set_command_handler(ble_command_handler_t handler)
+{
+    command_handler = handler;
+}
+
 static ssize_t command_write_cb(struct bt_conn *conn,
                                 const struct bt_gatt_attr *attr,
                                 const void *buf,
@@ -210,11 +238,15 @@ static ssize_t command_write_cb(struct bt_conn *conn,
 
     printk("BLE command received: %s\n", command);
 
-    if (strcmp(command, "PING") == 0) {
-        int ret = ble_data_service_send_text("PONG\n");
-        printk("PONG send ret=%d\n", ret);
+    if (command_handler != NULL) {
+        command_handler(command);
     } else {
-        ble_data_service_send_text("UNKNOWN_COMMAND\n");
+        if (strcmp(command, "PING") == 0) {
+            int ret = ble_data_service_send_text("PONG\n");
+            printk("PONG send ret=%d\n", ret);
+        } else {
+            ble_data_service_send_text("UNKNOWN_COMMAND\n");
+        }
     }
 
     return len;
@@ -223,17 +255,6 @@ static ssize_t command_write_cb(struct bt_conn *conn,
 int ble_data_service_init(void)
 {
     int ret;
-
-    static const struct bt_data ad[] = {
-        BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-        BT_DATA(BT_DATA_NAME_COMPLETE,
-                CONFIG_BT_DEVICE_NAME,
-                sizeof(CONFIG_BT_DEVICE_NAME) - 1),
-    };
-
-    static const struct bt_data sd[] = {
-        BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_BMA400_SERVICE_VAL),
-    };
 
     printk("Initializing BLE\n");
 
