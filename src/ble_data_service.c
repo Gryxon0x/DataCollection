@@ -211,6 +211,58 @@ int ble_data_service_send_text(const char *text)
     return 0;
 }
 
+int ble_data_service_send_bytes(const uint8_t *data, size_t len)
+{
+    size_t offset = 0;
+
+    if (data == NULL || len == 0) {
+        return -EINVAL;
+    }
+
+    if (current_conn == NULL) {
+        printk("BLE send failed: not connected\n");
+        return -ENOTCONN;
+    }
+
+    if (!data_notify_enabled) {
+        printk("BLE send failed: notifications not enabled\n");
+        return -EACCES;
+    }
+
+    while (offset < len) {
+        uint16_t mtu = bt_gatt_get_mtu(current_conn);
+        uint16_t payload_max = 20;
+
+        if (mtu > 3) {
+            payload_max = mtu - 3;
+        }
+
+        /*
+         * Na start konserwatywnie 20 bajtów.
+         * SAMPLE packet ma 15 bajtów, więc mieści się w jednej notyfikacji.
+         */
+        payload_max = MIN(payload_max, 20);
+
+        size_t chunk_len = MIN((size_t)payload_max, len - offset);
+
+        int ret = bt_gatt_notify(current_conn,
+                                 &bma400_svc.attrs[4],
+                                 &data[offset],
+                                 chunk_len);
+
+        if (ret != 0) {
+            printk("bt_gatt_notify failed: %d\n", ret);
+            return ret;
+        }
+
+        offset += chunk_len;
+
+        k_msleep(5);
+    }
+
+    return 0;
+}
+
 void ble_data_service_set_command_handler(ble_command_handler_t handler)
 {
     command_handler = handler;
