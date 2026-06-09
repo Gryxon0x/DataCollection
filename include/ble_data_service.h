@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,6 +14,8 @@ typedef void (*ble_command_handler_t)(const char *command);
 int ble_data_service_init(void);
 
 int ble_data_service_send_text(const char *text);
+
+int ble_data_service_send_bytes(const uint8_t *data, size_t len);
 
 bool ble_data_service_is_connected(void);
 
