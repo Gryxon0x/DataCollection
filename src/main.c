@@ -1,11 +1,16 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/sys/byteorder.h>
 
 #include "bma400_app.h"
 #include "ble_data_service.h"
 
 #define SAMPLE_PERIOD_MS 20
 #define MAX_SAMPLES 1000
+
+#define BLE_PKT_SAMPLE 0x01
+#define BLE_PKT_BEGIN  0x10
+#define BLE_PKT_END    0x11
 
 struct accel_record {
     uint32_t sample_id;
@@ -197,7 +202,7 @@ static void collect_samples(uint32_t duration_ms)
 
 static void transmit_samples(void)
 {
-    char line[96];
+    uint8_t packet[20];
 
     if (!ble_data_service_is_connected()) {
         printk("Cannot transmit: BLE not connected\n");
@@ -211,34 +216,68 @@ static void transmit_samples(void)
 
     state = APP_STATE_TRANSMITTING;
 
-    printk("Transmitting %u samples\n", sample_count);
+    printk("Transmitting %u binary samples\n", sample_count);
 
-    ble_data_service_send_text("BEGIN_CSV\n");
-    ble_data_service_send_text("sample_id,t_ms,ax_raw,ay_raw,az_raw\n");
+    /*
+     * BEGIN packet:
+     * [0]     type = 0x10
+     * [1..4]  sample_count uint32 LE
+     * [5..6]  sample_period_ms uint16 LE
+     */
+    packet[0] = BLE_PKT_BEGIN;
+    sys_put_le32(sample_count, &packet[1]);
+    sys_put_le16(SAMPLE_PERIOD_MS, &packet[5]);
+
+    int ret = ble_data_service_send_bytes(packet, 7);
+    if (ret != 0) {
+        printk("BLE BEGIN send failed: %d\n", ret);
+        state = APP_STATE_ERROR;
+        return;
+    }
 
     for (uint32_t i = 0; i < sample_count; i++) {
-        snprintf(line, sizeof(line),
-                 "%u,%u,%d,%d,%d\n",
-                 samples[i].sample_id,
-                 samples[i].t_ms,
-                 samples[i].ax,
-                 samples[i].ay,
-                 samples[i].az);
+        /*
+         * SAMPLE packet:
+         * [0]      type = 0x01
+         * [1..4]   sample_id uint32 LE
+         * [5..8]   t_ms uint32 LE
+         * [9..10]  ax int16 LE
+         * [11..12] ay int16 LE
+         * [13..14] az int16 LE
+         */
+        packet[0] = BLE_PKT_SAMPLE;
+        sys_put_le32(samples[i].sample_id, &packet[1]);
+        sys_put_le32(samples[i].t_ms, &packet[5]);
+        sys_put_le16((uint16_t)samples[i].ax, &packet[9]);
+        sys_put_le16((uint16_t)samples[i].ay, &packet[11]);
+        sys_put_le16((uint16_t)samples[i].az, &packet[13]);
 
-        int ret = ble_data_service_send_text(line);
-
+        ret = ble_data_service_send_bytes(packet, 15);
         if (ret != 0) {
-            printk("BLE send failed at sample %u, ret=%d\n", i, ret);
+            printk("BLE SAMPLE send failed at sample %u, ret=%d\n", i, ret);
             state = APP_STATE_ERROR;
             return;
         }
     }
 
-    ble_data_service_send_text("END_CSV\n");
+    /*
+     * END packet:
+     * [0]     type = 0x11
+     * [1..4]  sample_count uint32 LE
+     */
+    packet[0] = BLE_PKT_END;
+    sys_put_le32(sample_count, &packet[1]);
+
+    ret = ble_data_service_send_bytes(packet, 5);
+    if (ret != 0) {
+        printk("BLE END send failed: %d\n", ret);
+        state = APP_STATE_ERROR;
+        return;
+    }
 
     state = APP_STATE_DONE;
 
-    printk("Transmission done\n");
+    printk("Binary transmission done\n");
 }
 
 int main(void)
