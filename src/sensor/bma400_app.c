@@ -1,4 +1,4 @@
-#include "../include/bma400_app.h"
+#include "sensor/bma400_app.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>

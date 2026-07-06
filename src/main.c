@@ -2,8 +2,8 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/byteorder.h>
 
-#include "bma400_app.h"
-#include "ble_data_service.h"
+#include "sensor/bma400_app.h"
+#include "transport/ble_data_service.h"
 
 #define SAMPLE_PERIOD_MS 20
 #define MAX_SAMPLES 1000
