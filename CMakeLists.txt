@@ -14,6 +14,7 @@ target_sources(app PRIVATE
     src/app/app_commands.c
     src/app/app_state.c
     src/app/app_session.c
+    src/app/app.c
 
     src/sensor/bma400_app.c
 
