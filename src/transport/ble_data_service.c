@@ -13,7 +13,7 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
 
-#include "app_config.h"
+#include "app/app_config.h"
 
 /*
  * Custom BLE profile:

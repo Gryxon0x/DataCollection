@@ -337,7 +337,7 @@ int main(void)
             collect_samples(duration);
 
             if (state == APP_STATE_DONE) {
-                transmit_samples();
+                ble_data_service_send_text("READY_TO_SEND\n");
             }
         }
 
