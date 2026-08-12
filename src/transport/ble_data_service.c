@@ -13,6 +13,8 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
 
+#include "app_config.h"
+
 /*
  * Custom BLE profile:
  *
@@ -64,8 +66,8 @@ static const uint8_t adv_service_uuid[] = {
 static const struct bt_data ad[] = {
     BT_DATA(BT_DATA_FLAGS, adv_flags, sizeof(adv_flags)),
     BT_DATA(BT_DATA_NAME_COMPLETE,
-            CONFIG_BT_DEVICE_NAME,
-            sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+            APP_DEVICE_NAME,
+            sizeof(APP_DEVICE_NAME) - 1),
 };
 
 static const struct bt_data sd[] = {
@@ -329,7 +331,7 @@ int ble_data_service_init(void)
         return ret;
     }
 
-    printk("BLE advertising as %s\n", CONFIG_BT_DEVICE_NAME);
+    printk("BLE advertising as %s\n", APP_DEVICE_NAME);
 
     return 0;
 }
