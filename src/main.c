@@ -1,6 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/byteorder.h>
+#include "app/app_config.h"
 
 #include "sensor/bma400_app.h"
 #include "transport/ble_data_service.h"
@@ -225,10 +226,11 @@ static void transmit_samples(void)
      * [5..6]  sample_period_ms uint16 LE
      */
     packet[0] = BLE_PKT_BEGIN;
-    sys_put_le32(sample_count, &packet[1]);
-    sys_put_le16(SAMPLE_PERIOD_MS, &packet[5]);
+    packet[1] = APP_DEVICE_ID;
+    sys_put_le32(sample_count, &packet[2]);
+    sys_put_le16(SAMPLE_PERIOD_MS, &packet[6]);
 
-    int ret = ble_data_service_send_bytes(packet, 7);
+    int ret = ble_data_service_send_bytes(packet, 8);
     if (ret != 0) {
         printk("BLE BEGIN send failed: %d\n", ret);
         state = APP_STATE_ERROR;
@@ -246,13 +248,14 @@ static void transmit_samples(void)
          * [13..14] az int16 LE
          */
         packet[0] = BLE_PKT_SAMPLE;
-        sys_put_le32(samples[i].sample_id, &packet[1]);
-        sys_put_le32(samples[i].t_ms, &packet[5]);
-        sys_put_le16((uint16_t)samples[i].ax, &packet[9]);
-        sys_put_le16((uint16_t)samples[i].ay, &packet[11]);
-        sys_put_le16((uint16_t)samples[i].az, &packet[13]);
+        packet[1] = APP_DEVICE_ID;
+        sys_put_le32(samples[i].sample_id, &packet[2]);
+        sys_put_le32(samples[i].t_ms, &packet[6]);
+        sys_put_le16((uint16_t)samples[i].ax, &packet[10]);
+        sys_put_le16((uint16_t)samples[i].ay, &packet[12]);
+        sys_put_le16((uint16_t)samples[i].az, &packet[14]);
 
-        ret = ble_data_service_send_bytes(packet, 15);
+        ret = ble_data_service_send_bytes(packet, 16);
         if (ret != 0) {
             printk("BLE SAMPLE send failed at sample %u, ret=%d\n", i, ret);
             state = APP_STATE_ERROR;
@@ -266,9 +269,10 @@ static void transmit_samples(void)
      * [1..4]  sample_count uint32 LE
      */
     packet[0] = BLE_PKT_END;
-    sys_put_le32(sample_count, &packet[1]);
+    packet[1] = APP_DEVICE_ID;
+    sys_put_le32(sample_count, &packet[2]);
 
-    ret = ble_data_service_send_bytes(packet, 5);
+    ret = ble_data_service_send_bytes(packet, 6);
     if (ret != 0) {
         printk("BLE END send failed: %d\n", ret);
         state = APP_STATE_ERROR;
