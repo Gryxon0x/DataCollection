@@ -1,15 +1,8 @@
 cmake_minimum_required(VERSION 3.20.0)
+set(KCONFIG_ROOT ${CMAKE_CURRENT_LIST_DIR}/Kconfig)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(DataCollection)
-
-set(APP_DEVICE_ID 1 CACHE STRING "Application device id")
-set(APP_DEVICE_NAME BMA400_WRIST CACHE STRING "BLE device name")
-
-target_compile_definitions(app PRIVATE
-    APP_DEVICE_ID=${APP_DEVICE_ID}
-    APP_DEVICE_NAME=\"${APP_DEVICE_NAME}\"
-)
 
 target_include_directories(app PRIVATE
     include

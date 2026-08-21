@@ -1,12 +1,9 @@
 #ifndef APP_CONFIG_H_
 #define APP_CONFIG_H_
 
-#ifndef APP_DEVICE_ID
-#define APP_DEVICE_ID 1
-#endif
+#include <zephyr/autoconf.h>
 
-#ifndef APP_DEVICE_NAME
-#define APP_DEVICE_NAME "BMA400_WRIST"
-#endif
+#define APP_DEVICE_ID   CONFIG_APP_DEVICE_ID
+#define APP_DEVICE_NAME CONFIG_BT_DEVICE_NAME
 
 #endif /* APP_CONFIG_H_ */

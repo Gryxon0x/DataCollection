@@ -63,11 +63,13 @@ static const uint8_t adv_service_uuid[] = {
     BT_UUID_BMA400_SERVICE_VAL
 };
 
+static const char adv_name[] = APP_DEVICE_NAME;
+
 static const struct bt_data ad[] = {
     BT_DATA(BT_DATA_FLAGS, adv_flags, sizeof(adv_flags)),
     BT_DATA(BT_DATA_NAME_COMPLETE,
-            APP_DEVICE_NAME,
-            sizeof(APP_DEVICE_NAME) - 1),
+            adv_name,
+            sizeof(adv_name) - 1),
 };
 
 static const struct bt_data sd[] = {

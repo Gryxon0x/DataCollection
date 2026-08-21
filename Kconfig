@@ -1,0 +1,10 @@
+mainmenu "DataCollection"
+
+config APP_DEVICE_ID
+    int "Application device id"
+    range 1 255
+    default 1
+    help
+      Unique application device identifier.
+
+source "Kconfig.zephyr"

@@ -291,6 +291,8 @@ int main(void)
     k_msleep(3000);
 
     printk("\n\n=== BMA400 BLE data collector boot ===\n");
+    printk("APP_DEVICE_NAME=%s\n", APP_DEVICE_NAME);
+    printk("APP_DEVICE_ID=%d\n", APP_DEVICE_ID);
 
     ret = bma400_app_init();
     if (ret != 0) {
