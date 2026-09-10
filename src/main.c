@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/byteorder.h>
@@ -39,6 +42,8 @@ static volatile bool status_requested;
 
 static uint32_t requested_duration_ms;
 
+static uint32_t collect_start_uptime_ms;
+
 static enum app_state state = APP_STATE_IDLE;
 
 static const char *state_to_string(enum app_state s)
@@ -74,6 +79,32 @@ static void send_status(void)
 
 static void app_command_handler(const char *command)
 {
+    if (strncmp(command, "SYNC,", 5) == 0) {
+        char reply[80];
+        char *endptr;
+        unsigned long seq;
+
+        seq = strtoul(&command[5], &endptr, 10);
+
+        if (endptr == &command[5]) {
+            ble_data_service_send_text("ERROR,INVALID_SYNC_SEQ\n");
+            return;
+        }
+
+        /*
+         * Timestamp możliwie blisko wysłania odpowiedzi.
+        */
+        uint32_t device_uptime_ms = k_uptime_get_32();
+
+        snprintf(reply, sizeof(reply),
+                 "SYNC_REPLY,%lu,%u,%u\n",
+                 seq,
+                 APP_DEVICE_ID,
+                 device_uptime_ms);
+
+        ble_data_service_send_text(reply);
+        return;
+    }
     printk("App command handler: %s\n", command);
 
     if (strcmp(command, "PING") == 0) {
@@ -160,6 +191,7 @@ static void collect_samples(uint32_t duration_ms)
     ble_data_service_send_text("COLLECTING\n");
 
     t0_ms = k_uptime_get();
+    collect_start_uptime_ms = (uint32_t)t0_ms;
     next_sample_ms = t0_ms;
 
     for (uint32_t i = 0; i < max_requested_samples; i++) {
@@ -222,15 +254,18 @@ static void transmit_samples(void)
     /*
      * BEGIN packet:
      * [0]     type = 0x10
-     * [1..4]  sample_count uint32 LE
-     * [5..6]  sample_period_ms uint16 LE
+     * [1]     device_id uint8
+     * [2..5]  sample_count uint32 LE
+     * [6..7]  sample_period_ms uint16 LE
+     * [8..11] collect_start_uptime_ms uint32 LE
      */
     packet[0] = BLE_PKT_BEGIN;
     packet[1] = APP_DEVICE_ID;
     sys_put_le32(sample_count, &packet[2]);
     sys_put_le16(SAMPLE_PERIOD_MS, &packet[6]);
+    sys_put_le32(collect_start_uptime_ms, &packet[8]);
 
-    int ret = ble_data_service_send_bytes(packet, 8);
+    int ret = ble_data_service_send_bytes(packet, 12);
     if (ret != 0) {
         printk("BLE BEGIN send failed: %d\n", ret);
         state = APP_STATE_ERROR;
@@ -240,12 +275,13 @@ static void transmit_samples(void)
     for (uint32_t i = 0; i < sample_count; i++) {
         /*
          * SAMPLE packet:
-         * [0]      type = 0x01
-         * [1..4]   sample_id uint32 LE
-         * [5..8]   t_ms uint32 LE
-         * [9..10]  ax int16 LE
-         * [11..12] ay int16 LE
-         * [13..14] az int16 LE
+         * [0]       type = 0x01
+         * [1]       device_id uint8
+         * [2..5]    sample_id uint32 LE
+         * [6..9]    t_ms uint32 LE
+         * [10..11]  ax int16 LE
+         * [12..13]  ay int16 LE
+         * [14..15]  az int16 LE
          */
         packet[0] = BLE_PKT_SAMPLE;
         packet[1] = APP_DEVICE_ID;
@@ -266,7 +302,8 @@ static void transmit_samples(void)
     /*
      * END packet:
      * [0]     type = 0x11
-     * [1..4]  sample_count uint32 LE
+     * [1]     device_id uint8
+     * [2..5]  sample_count uint32 LE
      */
     packet[0] = BLE_PKT_END;
     packet[1] = APP_DEVICE_ID;
